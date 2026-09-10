@@ -2,43 +2,60 @@ import os
 import re
 import json
 import requests
+from bs4 import BeautifulSoup
 
-# 복사해두신 상품 URL
+# 이마트몰 한눈에반한쌀 10kg 실제 주소
 TARGET_URL = "https://emart.ssg.com/item/itemView.ssg?itemId=1000646184325"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://www.ssg.com/"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Referer": "https://emart.ssg.com/",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
 def get_rice_price():
+    item_id = "1000646184325"
+    
+    # [방법 1] 이마트몰 가격 정보 API 직접 조회
     try:
-        # 1. URL에서 상품 ID(itemId) 추출
-        item_id_match = re.search(r'itemId=(\d+)', TARGET_URL)
-        if not item_id_match:
-            return "URL에서 상품 ID(itemId)를 찾을 수 없습니다."
+        api_url = f"https://emart.ssg.com/item/ajaxItemPayInfo.ssg?itemId={item_id}"
+        res = requests.get(api_url, headers=HEADERS, timeout=10)
+        data = res.json()
         
-        item_id = item_id_match.group(1)
-
-        # 2. SSG 가격 API 직접 호출
-        api_url = f"https://www.ssg.com/item/ajaxItemPayInfo.ssg?itemId={item_id}"
-        response = requests.get(api_url, headers=HEADERS, timeout=10)
+        # API에서 할인 가격 또는 정상 가격 추출
+        pay_info = data.get("itemPayInfo", {})
+        price = pay_info.get("ssgPayAmt") or pay_info.get("sellprc") or pay_info.get("itemAmt")
         
-        # 3. JSON 데이터 파싱
-        data = response.json()
-        
-        # 4. 가격 정보 가져오기 (할인가가 있으면 할인가, 없으면 판매가)
-        price = data.get("itemPayInfo", {}).get("ssgPayAmt") or data.get("itemPayInfo", {}).get("sellprc")
-        
-        if price:
-            # 숫자에 천 단위 쉼표 추가 (예: 35000 -> 35,000)
-            formatted_price = f"{int(price):,}"
-            return formatted_price
-        else:
-            return "가격 데이터를 수신하지 못했습니다."
-
+        if price and str(price).isdigit():
+            return f"{int(price):,}"
     except Exception as e:
-        return f"오류 발생: {str(e)}"
+        print(f"API 방식 실패: {e}")
+
+    # [방법 2] 상품 페이지 HTML 직접 크롤링 (대체 방식)
+    try:
+        res = requests.get(TARGET_URL, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # 주 가격 셀렉터들 확인
+        selectors = [
+            ".ssg_price", 
+            ".cdtl_price .ssg_tx", 
+            "em.ssg_price", 
+            "span.price",
+            ".item_price .ssg_tx"
+        ]
+        
+        for sel in selectors:
+            elem = soup.select_one(sel)
+            if elem and elem.text.strip():
+                # 숫자만 추출
+                raw_price = re.sub(r'[^0-9]', '', elem.text)
+                if raw_price:
+                    return f"{int(raw_price):,}"
+    except Exception as e:
+        print(f"HTML 방식 실패: {e}")
+
+    return "가격 정보를 읽어오지 못했습니다."
 
 def send_telegram_msg(message):
     bot_token = os.environ.get("BOT_TOKEN")
@@ -54,5 +71,5 @@ def send_telegram_msg(message):
 
 if __name__ == "__main__":
     price = get_rice_price()
-    msg = f"🌾 [이마트몰] 한눈에 반한 쌀 10kg\n💰 오늘 가격: {price}원\n🔗 바로가기: {TARGET_URL}"
+    msg = f"🌾 [이마트몰] 한눈에반한쌀 (특) 10kg\n💰 오늘 가격: {price}원\n🔗 바로가기: {TARGET_URL}"
     send_telegram_msg(msg)
