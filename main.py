@@ -1,46 +1,47 @@
 import os
 import re
 import requests
+from playwright.sync_api import sync_playwright
 
 TARGET_URL = "https://emart.ssg.com/item/itemView.ssg?itemId=1000646184325"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    "Referer": "https://emart.ssg.com/",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-}
-
 def get_rice_price():
     try:
-        res = requests.get(TARGET_URL, headers=HEADERS, timeout=15)
-        html = res.text
+        with sync_playwright() as p:
+            # 가상 크롬 브라우저 실행
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+            
+            # 페이지 접속 후 화면 로딩 대기
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30000)
+            
+            # 가격 요소가 화면에 뜰 때까지 대기 및 추출
+            selectors = [".ssg_price", "em.ssg_price", ".cdtl_price .ssg_tx", ".item_price"]
+            price_text = ""
+            
+            for selector in selectors:
+                try:
+                    page.wait_for_selector(selector, timeout=4000)
+                    price_text = page.locator(selector).first.inner_text()
+                    if price_text:
+                        break
+                except:
+                    continue
+            
+            browser.close()
 
-        # 1. 페이지 내 자바스크립트 변수에서 가격(sellprc, itemAmt, ssgPayAmt) 패턴 추출
-        patterns = [
-            r'"sellprc"\s*:\s*"?(\d+)"?',
-            r'"itemAmt"\s*:\s*"?(\d+)"?',
-            r'"ssgPayAmt"\s*:\s*"?(\d+)"?',
-            r'itemAmt\s*=\s*"?(\d+)"?'
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, html)
-            if match:
-                price_val = int(match.group(1))
-                # 정상적인 가격 범위(10,000원 이상)인지 검증
-                if price_val > 10000:
-                    return f"{price_val:,}"
-
-        # 2. Meta 태그(og:price:amount) 확인
-        og_price = re.search(r'property="og:price:amount"\s+content="(\d+)"', html)
-        if og_price:
-            return f"{int(og_price.group(1)):,}"
-
-        return "가격 메타데이터를 찾을 수 없습니다."
+            # 숫자만 추출 후 천 단위 쉼표 추가
+            raw_price = re.sub(r'[^0-9]', '', price_text)
+            if raw_price:
+                return f"{int(raw_price):,}"
+            
+            return "가격을 찾을 수 없습니다."
 
     except Exception as e:
-        return f"요청 오류: {str(e)}"
+        return f"오류 발생: {str(e)}"
 
 def send_telegram_msg(message):
     bot_token = os.environ.get("BOT_TOKEN")
