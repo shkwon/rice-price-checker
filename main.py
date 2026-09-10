@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # 이마트몰/SSG 한눈에반한쌀 10kg 검색 결과 및 상품 페이지 URL
-TARGET_URL = "https://www.ssg.com/item/itemView.ssg?itemId=1000005273763"
+TARGET_URL = "https://emart.ssg.com/item/itemView.ssg?itemId=1000646184325"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
